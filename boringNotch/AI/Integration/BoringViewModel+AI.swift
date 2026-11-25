@@ -42,6 +42,16 @@ extension BoringViewModel {
         )
     }
 
+    /// The tab a freshly opened notch should show (Settings → "Open on"),
+    /// falling back to Home when that tab is turned off.
+    static func defaultOpenView() -> NotchViews {
+        switch Defaults[.defaultOpenTab] {
+        case .home: return .home
+        case .shelf: return Defaults[.boringShelf] ? .shelf : .home
+        case .ai: return Defaults[.enableAITab] ? .ai : .home
+        }
+    }
+
     /// An AI decision (permission / plan / question) waits for the user.
     var aiDecisionPending: Bool {
         guard Defaults[.enableAITab] else { return false }

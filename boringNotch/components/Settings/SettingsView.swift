@@ -152,7 +152,8 @@ struct GeneralSettings: View {
     @Default(.automaticallySwitchDisplay) var automaticallySwitchDisplay
     @Default(.enableGestures) var enableGestures
     @Default(.openNotchOnHover) var openNotchOnHover
-    
+    @Default(.defaultOpenTab) var defaultOpenTab
+
 
     var body: some View {
         Form {
@@ -333,6 +334,14 @@ struct GeneralSettings: View {
                     Text("Enable haptic feedback")
             }
             Toggle("Remember last tab", isOn: $coordinator.openLastTabByDefault)
+            // SuperNotch: which tab the notch opens on (ignored while
+            // "Remember last tab" is on).
+            Picker("Open on", selection: $defaultOpenTab) {
+                ForEach(NotchDefaultTab.allCases, id: \.self) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .disabled(coordinator.openLastTabByDefault)
             if openNotchOnHover {
                 Slider(value: $minimumHoverDuration, in: 0...1, step: 0.1) {
                     HStack {

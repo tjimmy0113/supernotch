@@ -19,3 +19,22 @@ extension Defaults.Keys {
     /// Mascot / session-count live activity in the closed notch.
     static let aiShowClosedActivity = Key<Bool>("aiShowClosedActivity", default: true)
 }
+
+/// Tab the notch opens on. Precedence when the notch closes: a pending AI
+/// decision → AI; a non-empty Shelf with "Open shelf by default" → Shelf;
+/// "Remember last tab" → unchanged; otherwise this.
+enum NotchDefaultTab: String, CaseIterable, Defaults.Serializable {
+    case home, shelf, ai
+
+    var title: String {
+        switch self {
+        case .home: return "Home"
+        case .shelf: return "Shelf"
+        case .ai: return "AI"
+        }
+    }
+}
+
+extension Defaults.Keys {
+    static let defaultOpenTab = Key<NotchDefaultTab>("defaultOpenTab", default: .home)
+}

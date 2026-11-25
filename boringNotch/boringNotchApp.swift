@@ -69,6 +69,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var dragDetectors: [String: DragDetector] = [:] // UUID -> DragDetector
     private var enableAITabCancellable: AnyCancellable?
     private var terminationSignalSources: [DispatchSourceSignal] = []
+    private var defaultOpenTabCancellable: AnyCancellable?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
@@ -451,6 +452,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupDragDetectors()
         setupAIManager()
         installTerminationSignalHandlers()
+        setupDefaultOpenTab()
 
         if coordinator.firstLaunch {
             DispatchQueue.main.async {
@@ -483,6 +485,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             source.resume()
             terminationSignalSources.append(source)
         }
+    }
+
+    /// Applies Settings → "Open on" at launch and whenever it changes while
+    /// every notch is closed (an open notch picks it up when it closes).
+    private func setupDefaultOpenTab() {
+        defaultOpenTabCancellable = Defaults.publisher(.defaultOpenTab)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    let anyOpen = ([self.vm] + Array(self.viewModels.values)).contains { $0.notchState == .open }
+                    guard !anyOpen, !self.coordinator.openLastTabByDefault else { return }
+                    self.coordinator.currentView = BoringViewModel.defaultOpenView()
+                }
+            }
     }
 
     /// Runs Code Island's AI runtime while the AI tab is enabled.

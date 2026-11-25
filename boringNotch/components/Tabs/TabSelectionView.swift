@@ -57,6 +57,15 @@ struct TabSelectionView: View {
                             }
                         }
                     }
+                    // ...and when the tab bar appears under a cursor that
+                    // isn't moving (no hover event would fire).
+                    .background(RestingHoverDetector {
+                        if coordinator.currentView != tab.view {
+                            withAnimation(.smooth) {
+                                coordinator.currentView = tab.view
+                            }
+                        }
+                    })
                     .foregroundStyle(tab.view == coordinator.currentView ? .white : .gray)
                     .background {
                         if tab.view == coordinator.currentView {
