@@ -173,6 +173,17 @@ struct Session: Identifiable {
     /// Resolved provider object for theming/grouping.
     var provider: AIProvider { AIProvider.from(source) }
 
+    /// SuperNotch: a Claude session that never got a prompt or did any work —
+    /// e.g. tools like ClaudeBar briefly starting `claude` in the background
+    /// every couple of minutes to read usage. Hidden from the AI tab and kept
+    /// silent; it becomes a normal session as soon as it gets a prompt / tool.
+    var isBackgroundProbe: Bool {
+        source == "claude"
+            && firstPrompt == nil && lastUserMessage == nil && lastAssistantMessage == nil
+            && currentTool == nil && lastToolDurationMs == nil
+            && pendingPermission == nil && pendingQuestion == nil
+    }
+
     var projectName: String {
         (cwd as NSString).lastPathComponent
     }

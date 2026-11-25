@@ -83,7 +83,7 @@ final class AIManager: ObservableObject {
         soundEngine = SoundEngine()
         sessionStore.onEvent
             .sink { [weak self] event in
-                self?.soundEngine?.play(event)
+                self?.playSound(for: event)
                 self?.events.send(event)
             }
             .store(in: &runCancellables)
@@ -177,6 +177,41 @@ final class AIManager: ObservableObject {
     /// Stops the socket server, removes the pid file, stops polling and the
     /// Codex client. Pending permission/question prompts are handed back to
     /// the agents (they fall back to their own terminal prompt). Idempotent.
+    /// Sessions whose "session start" sound has played. The start sound is
+    /// deferred until a session's first real activity, so background probes
+    /// (start + end without a prompt) stay silent.
+    private var announcedSessions = Set<String>()
+
+    private func playSound(for event: SessionEvent) {
+        switch event {
+        case .sessionStarted:
+            return   // see announceIfNeeded
+        case .sessionEnded(let id):
+            guard announcedSessions.remove(id) != nil else { return }
+            soundEngine?.play(event)
+        default:
+            if let id = Self.sessionId(of: event) { announceIfNeeded(id) }
+            soundEngine?.play(event)
+        }
+    }
+
+    private func announceIfNeeded(_ id: String) {
+        guard !announcedSessions.contains(id),
+              let session = sessionStore.sessions[id], !session.isBackgroundProbe else { return }
+        announcedSessions.insert(id)
+        soundEngine?.play(.sessionStarted(id))
+    }
+
+    private static func sessionId(of event: SessionEvent) -> String? {
+        switch event {
+        case .sessionStarted(let id), .sessionEnded(let id), .statusChanged(let id, _),
+             .toolStarted(let id, _), .toolEnded(let id, _), .permissionRequested(let id),
+             .permissionResponded(let id, _), .planRequested(let id), .questionAsked(let id),
+             .pendingDismissedExternally(let id), .notification(let id, _):
+            return id
+        }
+    }
+
     func stop() {
         guard isRunning else { return }
         Log.info("AIManager stopping")

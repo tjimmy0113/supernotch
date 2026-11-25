@@ -182,8 +182,9 @@ final class SessionStore: ObservableObject {
         return nil
     }
 
+    /// Sessions shown in the notch: not completed and not background probes.
     var activeSessions: [String: Session] {
-        sessions.filter { $0.value.status != .completed }
+        sessions.filter { $0.value.status != .completed && !$0.value.isBackgroundProbe }
     }
 
     private func ensureSession(_ message: BridgeMessage) {

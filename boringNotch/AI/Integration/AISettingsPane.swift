@@ -206,8 +206,44 @@ struct AIAgentsSettings: View {
                 }
             }
             .disabled(!settingsStore.soundEnabled)
+            ForEach(Self.soundEventRows, id: \.event) { row in
+                HStack {
+                    Toggle(row.label, isOn: soundEventBinding(row.event))
+                    Button {
+                        AIManager.shared.previewSound(row.event)
+                    } label: {
+                        Image(systemName: "play.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Preview")
+                }
+                .disabled(!settingsStore.soundEnabled)
+            }
         } header: {
             Text("Sound")
+        } footer: {
+            Text("Session start/end sounds play only for real sessions (after your first prompt), not for background probes.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+    }
+
+    /// Events shown in Settings, in display order. `.error` is omitted: nothing
+    /// currently emits it.
+    private static let soundEventRows: [(event: SoundEvent, label: String)] = [
+        (.approvalNeeded, "Needs your approval"),
+        (.completion, "Task finished"),
+        (.approvalGranted, "Approved"),
+        (.approvalDenied, "Denied"),
+        (.sessionStart, "Session started"),
+        (.sessionEnd, "Session ended"),
+        (.toolUse, "Every tool call"),
+    ]
+
+    private func soundEventBinding(_ event: SoundEvent) -> Binding<Bool> {
+        Binding(
+            get: { settingsStore.soundChoice(for: event.rawValue) != "off" },
+            set: { on in settingsStore.setSoundChoice(on ? "default" : "off", for: event.rawValue) }
+        )
     }
 }

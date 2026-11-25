@@ -25,6 +25,7 @@ final class AISettingsStore: ObservableObject {
         /// used share. Read directly via @AppStorage by RateLimitBar and the
         /// settings pane (single source of truth: UserDefaults).
         static let showRemainingUsage = "ai.showRemainingUsage"
+        static let soundDefaultsV2 = "ai.soundDefaultsV2"
     }
 
     private let defaults: UserDefaults
@@ -68,6 +69,10 @@ final class AISettingsStore: ObservableObject {
             }
         }
     }
+    static let defaultSoundAssignments: [String: String] = [
+        "tool-use": "off", "session-start": "off", "session-end": "off",
+    ]
+
     func soundChoice(for eventRaw: String) -> String { soundAssignments[eventRaw] ?? "default" }
     func setSoundChoice(_ choice: String, for eventRaw: String) { soundAssignments[eventRaw] = choice }
 
@@ -124,14 +129,30 @@ final class AISettingsStore: ObservableObject {
         self.soundEnabled = defaults.bool(forKey: Keys.soundEnabled)
         self.soundVolume = defaults.float(forKey: Keys.soundVolume)
         self.autoInstallHooks = defaults.bool(forKey: Keys.autoInstallHooks)
+        var assignments: [String: String]
         if let data = defaults.data(forKey: Keys.soundAssignments),
            let map = try? JSONDecoder().decode([String: String].self, from: data) {
-            self.soundAssignments = map
+            assignments = map
         } else {
-            // Fresh install: mirror CI's defaults (tool-use sound is off — it
-            // gets spammy).
-            self.soundAssignments = ["tool-use": "off"]
+            // Fresh install: tool-use (CI's default) plus session start/end
+            // are off — they fire constantly and aren't worth a sound.
+            assignments = Self.defaultSoundAssignments
         }
+        // One-time migration for maps saved before session start/end were off
+        // by default: only fills keys the user never set. (Plain locals here:
+        // didSet doesn't run inside init, so persist explicitly.)
+        if !defaults.bool(forKey: Keys.soundDefaultsV2) {
+            let before = assignments
+            for (key, value) in Self.defaultSoundAssignments where assignments[key] == nil {
+                assignments[key] = value
+            }
+            if assignments != before, defaults.data(forKey: Keys.soundAssignments) != nil,
+               let data = try? JSONEncoder().encode(assignments) {
+                defaults.set(data, forKey: Keys.soundAssignments)
+            }
+            defaults.set(true, forKey: Keys.soundDefaultsV2)
+        }
+        self.soundAssignments = assignments
         self.notchThemeID = NotchThemeID(rawValue: defaults.string(forKey: Keys.notchThemeID) ?? "") ?? .default
 
         if let data = defaults.data(forKey: Keys.strictApproval),

@@ -210,7 +210,7 @@ final class AIPanelModel: ObservableObject {
     private func sessionsWillChange(to sessions: [String: Session]) {
         let pending = sessions.values.contains { $0.pendingPermission != nil || $0.pendingQuestion != nil }
         if hasPendingDecision != pending { hasPendingDecision = pending }
-        let active = sessions.values.filter { $0.status != .completed }.count
+        let active = sessions.values.filter { $0.status != .completed && !$0.isBackgroundProbe }.count
         if activeSessionCount != active { activeSessionCount = active }
 
         // A decision we show may disappear without an event (session removed,
