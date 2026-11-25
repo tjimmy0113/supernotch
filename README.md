@@ -29,6 +29,16 @@ It is [boring.notch](https://github.com/TheBoredTeam/boring.notch) with the AI-a
 
 ## Install
 
+**Homebrew** (clears the Gatekeeper quarantine for you):
+
+```bash
+brew tap tjimmy0113/tap
+brew trust tjimmy0113/tap
+brew install --cask supernotch
+```
+
+**Manual:**
+
 1. Download `SuperNotch-<version>-arm64.dmg` from [Releases](../../releases) and drag **SuperNotch** to Applications.
 2. The app is **not notarized** (no paid Apple Developer ID yet), so macOS blocks the first launch. Either
    - right-click SuperNotch in Applications → **Open** → **Open**, or
