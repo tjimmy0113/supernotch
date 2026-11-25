@@ -6,6 +6,7 @@
 //
 
 import Defaults
+import EventKit
 import SwiftUI
 
 struct Config: Equatable {
@@ -238,6 +239,13 @@ struct CalendarView: View {
         }
         .onAppear {
             Task {
+                // SuperNotch: ask for calendar access the first time the
+                // calendar is shown, instead of relying only on onboarding /
+                // the Calendar settings pane (a skipped onboarding otherwise
+                // leaves the calendar silently empty).
+                if EKEventStore.authorizationStatus(for: .event) == .notDetermined {
+                    await calendarManager.checkCalendarAuthorization()
+                }
                 await calendarManager.updateCurrentDate(Date.now)
                 selectedDate = Date.now
             }

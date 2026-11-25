@@ -21,24 +21,24 @@ struct DynamicNotchApp: App {
     let updaterController: SPUStandardUpdaterController
 
     init() {
+        // SuperNotch: boring.notch's Sparkle feed is not ours, so the updater never starts.
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
 
         // Initialize the settings window controller with the updater controller
         SettingsWindowController.shared.setUpdaterController(updaterController)
     }
 
     var body: some Scene {
-        MenuBarExtra("boring.notch", systemImage: "sparkle", isInserted: $showMenuBarIcon) {
+        MenuBarExtra("SuperNotch", systemImage: "sparkle", isInserted: $showMenuBarIcon) {
             Button("Settings") {
                 DispatchQueue.main.async {
                     SettingsWindowController.shared.showWindow()
                 }
             }
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
-            CheckForUpdatesView(updater: updaterController.updater)
             Divider()
-            Button("Restart Boring Notch") {
+            Button("Restart SuperNotch") {
                 ApplicationRelauncher.restart()
             }
             Button("Quit", role: .destructive) {
@@ -67,6 +67,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var isScreenLocked: Bool = false
     private var windowScreenDidChangeObserver: Any?
     private var dragDetectors: [String: DragDetector] = [:] // UUID -> DragDetector
+    private var enableAITabCancellable: AnyCancellable?
+    private var terminationSignalSources: [DispatchSourceSignal] = []
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
@@ -83,6 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             screenUnlockedObserver = nil
         }
         MusicManager.shared.destroy()
+        AIManager.shared.stop()
         cleanupDragDetectors()
         cleanupWindows()
         XPCHelperClient.shared.stopMonitoringAccessibilityAuthorization()
@@ -91,6 +94,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func onScreenLocked(_ notification: Notification) {
         isScreenLocked = true
+        AIPanelModel.shared.setScreenLocked(true)
         if !Defaults[.showOnLockScreen] {
             cleanupWindows()
         } else {
@@ -101,6 +105,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func onScreenUnlocked(_ notification: Notification) {
         isScreenLocked = false
+        // Before the window is recreated, so its ContentView can replay a
+        // pending AI popup on appear.
+        AIPanelModel.shared.setScreenLocked(false)
         if !Defaults[.showOnLockScreen] {
             adjustWindowPosition(changeAlpha: true)
         } else {
@@ -153,6 +160,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 NotchSpaceManager.shared.notchSpace.windows.remove(window)
             }
             windows.removeAll()
+            // Dropped while possibly open: unregister from the AI panel (and
+            // re-arm a pending decision popup for the next window).
+            viewModels.values.forEach { AIPanelModel.shared.notchDropped($0) }
             viewModels.removeAll()
         } else if let window = window {
             window.close()
@@ -162,6 +172,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 windowScreenDidChangeObserver = nil
             }
             self.window = nil
+            // Switching to "show on all displays": the single vm is no longer
+            // shown, so it must not count as an open notch.
+            if shouldInvert {
+                AIPanelModel.shared.notchDropped(vm)
+                // Not shown in multi-display mode: close it so it doesn't come
+                // back stale-open if the user switches back.
+                vm.close()
+            }
         }
     }
 
@@ -235,7 +253,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let rect = NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height)
         let styleMask: NSWindow.StyleMask = [.borderless, .nonactivatingPanel, .utilityWindow, .hudWindow]
         
-        let window = BoringNotchSkyLightWindow(contentRect: rect, styleMask: styleMask, backing: .buffered, defer: false)
+        let window = SuperNotchWindow(contentRect: rect, styleMask: styleMask, backing: .buffered, defer: false)
         
         // Enable SkyLight only when screen is locked
         if isScreenLocked {
@@ -244,10 +262,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.disableSkyLight()
         }
 
-        window.contentView = NSHostingView(
+        let hostingView = NSHostingView(
             rootView: ContentView()
                 .environmentObject(viewModel)
         )
+        // The window size is driven explicitly (SuperNotchWindow grows it for the
+        // AI tab), so SwiftUI's min/max/intrinsic sizes must not resize it.
+        hostingView.sizingOptions = []
+        window.contentView = hostingView
+        window.attachAISizing(to: viewModel)
 
         window.orderFrontRegardless()
         NotchSpaceManager.shared.notchSpace.windows.insert(window)
@@ -397,6 +420,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         do {
                             try await Task.sleep(for: .seconds(3))
                             await MainActor.run {
+                                // Keep the notch open while the AI tab waits for a decision.
+                                if BoringViewCoordinator.shared.currentView == .ai
+                                    && AIPanelModel.shared.requiresUserAction {
+                                    return
+                                }
                                 viewModel?.close()
                             }
                         } catch { }
@@ -421,6 +449,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         setupDragDetectors()
+        setupAIManager()
+        installTerminationSignalHandlers()
 
         if coordinator.firstLaunch {
             DispatchQueue.main.async {
@@ -436,6 +466,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         previousScreens = NSScreen.screens
+    }
+
+    /// The embedded MediaRemoteAdapter.framework installs SIGTERM/SIGINT
+    /// handlers at load time that only stop a run loop, so `kill <pid>` /
+    /// logout never quit the app and applicationWillTerminate (AIManager.stop:
+    /// release blocked agent hooks, remove the socket) never ran. Route both
+    /// signals to a normal NSApp.terminate instead.
+    private func installTerminationSignalHandlers() {
+        for sig in [SIGTERM, SIGINT] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler {
+                NSApp.terminate(nil)
+            }
+            source.resume()
+            terminationSignalSources.append(source)
+        }
+    }
+
+    /// Runs Code Island's AI runtime while the AI tab is enabled.
+    private func setupAIManager() {
+        // Subscribe the AI tab to session events before the socket starts.
+        _ = AIPanelModel.shared
+        // Emits the current value first, so this also starts AIManager at launch.
+        enableAITabCancellable = Defaults.publisher(.enableAITab)
+            .map(\.newValue)
+            .removeDuplicates()
+            .sink { [weak self] enabled in
+                Task { @MainActor in
+                    if enabled {
+                        AIManager.shared.start()
+                    } else {
+                        AIManager.shared.stop()
+                        if let self, self.coordinator.currentView == .ai {
+                            // Close notches showing the AI tab first (a pending
+                            // decision may have been holding them open).
+                            ([self.vm] + Array(self.viewModels.values))
+                                .filter { $0.notchState == .open }
+                                .forEach { $0.close() }
+                            self.coordinator.currentView = .home
+                        }
+                    }
+                }
+            }
     }
 
     func playWelcomeSound() {
@@ -484,7 +558,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     window.close()
                     NotchSpaceManager.shared.notchSpace.windows.remove(window)
                     windows.removeValue(forKey: uuid)
-                    viewModels.removeValue(forKey: uuid)
+                    if let dropped = viewModels.removeValue(forKey: uuid) {
+                        AIPanelModel.shared.notchDropped(dropped)
+                    }
                 }
             }
 
@@ -526,7 +602,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             vm.screenUUID = selectedScreen.displayUUID
-            vm.notchSize = getClosedNotchSize(screenUUID: selectedScreen.displayUUID)
+            // The window may have been torn down while open (lock screen):
+            // close requests sent meanwhile had no ContentView to act on. Only
+            // a pending AI decision may keep it open.
+            if vm.notchState == .open,
+               !(coordinator.currentView == .ai && AIPanelModel.shared.requiresUserAction) {
+                vm.close()
+            }
+            // Keep an open notch open-sized (an AI decision can hold it open
+            // across lock / display changes); only a closed notch gets the
+            // closed size.
+            vm.notchSize = vm.notchState == .open
+                ? vm.openNotchSizeForCurrentView
+                : getClosedNotchSize(screenUUID: selectedScreen.displayUUID)
 
             if window == nil {
                 window = createBoringNotchWindow(for: selectedScreen, with: vm)

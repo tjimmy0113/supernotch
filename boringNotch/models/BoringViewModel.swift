@@ -190,8 +190,9 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func open() {
-        self.notchSize = openNotchSize
+        self.notchSize = openNotchSizeForCurrentView
         self.notchState = .open
+        AIPanelModel.shared.notchDidOpen(self)
         
         // Force music information update when notch is opened
         MusicManager.shared.forceUpdate()
@@ -208,12 +209,17 @@ class BoringViewModel: NSObject, ObservableObject {
         self.isBatteryPopoverActive = false
         self.coordinator.sneakPeek.show = false
         self.edgeAutoOpenActive = false
+        AIPanelModel.shared.notchDidClose(self)
 
-        // Set the current view to shelf if it contains files and the user enables openShelfByDefault
-        // Otherwise, if the user has not enabled openLastShelfByDefault, set the view to home
-    if !ShelfStateViewModel.shared.isEmpty && Defaults[.openShelfByDefault] {
+        // Keep the AI tab selected while an agent waits for a decision, so the
+        // next open shows it right away.
+        // Otherwise set the current view to shelf if it contains files and the user enables openShelfByDefault,
+        // or, if the user has not enabled openLastShelfByDefault, set the view to home
+        if aiDecisionPending {
+            coordinator.currentView = .ai
+        } else if !ShelfStateViewModel.shared.isEmpty && Defaults[.openShelfByDefault] {
             coordinator.currentView = .shelf
-        } else if !coordinator.openLastTabByDefault {
+        } else if !coordinator.openLastTabByDefault || (coordinator.currentView == .ai && !Defaults[.enableAITab]) {
             coordinator.currentView = .home
         }
     }

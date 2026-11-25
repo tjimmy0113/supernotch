@@ -23,6 +23,7 @@ struct ContentView: View {
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var brightnessManager = BrightnessManager.shared
     @ObservedObject var volumeManager = VolumeManager.shared
+    @ObservedObject var aiPanel = AIPanelModel.shared
     @State private var hoverTask: Task<Void, Never>?
     @State private var isHovering: Bool = false
     @State private var anyDropDebounceTask: Task<Void, Never>?
@@ -36,6 +37,9 @@ struct ContentView: View {
     @Default(.useMusicVisualizer) var useMusicVisualizer
 
     @Default(.showNotHumanFace) var showNotHumanFace
+
+    @Default(.enableAITab) var enableAITab
+    @Default(.aiShowClosedActivity) var aiShowClosedActivity
 
     // Shared interactive spring for movement/resizing to avoid conflicting animations
     private let animationSpring = Animation.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)
@@ -58,6 +62,30 @@ struct ContentView: View {
         )
     }
 
+    // MARK: - AI tab
+
+    /// The closed notch may show the AI live activity.
+    private var aiClosedActivityAllowed: Bool {
+        enableAITab && aiShowClosedActivity && vm.notchState == .closed && !vm.hideOnClosed
+    }
+
+    /// Closed notch: an agent waits for a decision (outranks the music live activity).
+    private var showAIPendingActivity: Bool {
+        aiClosedActivityAllowed && aiPanel.hasPendingDecision
+            && (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
+    }
+
+    /// Closed notch: agent sessions are active (outranks the face, not music).
+    private var showAIWorkingActivity: Bool {
+        aiClosedActivityAllowed && aiPanel.activeSessionCount > 0 && !coordinator.expandingView.show
+    }
+
+    /// The AI tab shows a pending permission / plan / question: keep the notch open.
+    private var aiBlocksClose: Bool {
+        // Behind the lock screen the panel only shows a placeholder.
+        coordinator.currentView == .ai && aiPanel.requiresUserAction && !aiPanel.isScreenLocked
+    }
+
     private var computedChinWidth: CGFloat {
         var chinWidth: CGFloat = vm.closedNotchSize.width
 
@@ -65,10 +93,14 @@ struct ContentView: View {
             && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
         {
             chinWidth = 640
+        } else if showAIPendingActivity {
+            chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
         } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
             && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle)
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
         {
+            chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
+        } else if showAIWorkingActivity {
             chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
         } else if !coordinator.expandingView.show && vm.notchState == .closed
             && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace]
@@ -118,7 +150,11 @@ struct ContentView: View {
                     )
                 
                 mainLayout
-                    .frame(height: vm.notchState == .open ? vm.notchSize.height : nil)
+                    // Open height is derived from the selected tab (+ AI panel
+                    // height) at render time, so a tab switch animates the
+                    // notch in the SAME transaction / curve as the content
+                    // instead of a separate, one-frame-late resize.
+                    .frame(height: vm.notchState == .open ? vm.openNotchSizeForCurrentView.height : nil)
                     .conditionalModifier(true) { view in
                         let openAnimation = Animation.spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
                         let closeAnimation = Animation.spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
@@ -126,13 +162,16 @@ struct ContentView: View {
                         return view
                             .animation(vm.notchState == .open ? openAnimation : closeAnimation, value: vm.notchState)
                             .animation(.smooth, value: gestureProgress)
+                            // AI panel content height changes (list measured,
+                            // popup mode) use the tab switch's curve too.
+                            .animation(.smooth, value: aiPanel.preferredHeight)
                     }
                     .contentShape(Rectangle())
                     .onHover { hovering in
                         handleHover(hovering)
                     }
                     .onTapGesture {
-                        doOpen()
+                        openFromUserInteraction()
                     }
                     .conditionalModifier(Defaults[.enableGestures]) { view in
                         view
@@ -147,13 +186,13 @@ struct ContentView: View {
                             }
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .sharingDidFinish)) { _ in
-                        if vm.notchState == .open && !isHovering && !vm.isBatteryPopoverActive {
+                        if vm.notchState == .open && !isHovering && !vm.isBatteryPopoverActive && !aiBlocksClose {
                             hoverTask?.cancel()
                             hoverTask = Task {
                                 try? await Task.sleep(for: .milliseconds(100))
                                 guard !Task.isCancelled else { return }
                                 await MainActor.run {
-                                    if self.vm.notchState == .open && !self.isHovering && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
+                                    if self.vm.notchState == .open && !self.isHovering && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose && !self.aiBlocksClose {
                                         self.vm.close()
                                     }
                                 }
@@ -168,13 +207,13 @@ struct ContentView: View {
                         }
                     }
                     .onChange(of: vm.isBatteryPopoverActive) {
-                        if !vm.isBatteryPopoverActive && !isHovering && vm.notchState == .open && !SharingStateManager.shared.preventNotchClose {
+                        if !vm.isBatteryPopoverActive && !isHovering && vm.notchState == .open && !SharingStateManager.shared.preventNotchClose && !aiBlocksClose {
                             hoverTask?.cancel()
                             hoverTask = Task {
                                 try? await Task.sleep(for: .milliseconds(100))
                                 guard !Task.isCancelled else { return }
                                 await MainActor.run {
-                                    if !self.vm.isBatteryPopoverActive && !self.isHovering && self.vm.notchState == .open && !SharingStateManager.shared.preventNotchClose {
+                                    if !self.vm.isBatteryPopoverActive && !self.isHovering && self.vm.notchState == .open && !SharingStateManager.shared.preventNotchClose && !self.aiBlocksClose {
                                         self.vm.close()
                                     }
                                 }
@@ -203,7 +242,10 @@ struct ContentView: View {
             }
         }
         .padding(.bottom, 8)
-        .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
+        // Fill the window and pin the notch to its top edge. The window is
+        // windowSize, or taller while the AI tab needs room (SuperNotchWindow),
+        // so the content never re-centers while the window resizes.
+        .frame(maxWidth: windowSize.width, maxHeight: .infinity, alignment: .top)
         .compositingGroup()
         .scaleEffect(
             x: gestureScale,
@@ -235,10 +277,44 @@ struct ContentView: View {
                 }
 
                 vm.dropEvent = false
-                if !SharingStateManager.shared.preventNotchClose {
+                if !SharingStateManager.shared.preventNotchClose && !aiBlocksClose {
                     vm.close()
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .aiRequestOpenNotch)) { _ in
+            handleAIOpenRequest()
+        }
+        .onAppear {
+            replayPendingAIPopup()
+        }
+        .onChange(of: coordinator.helloAnimationRunning) { _, running in
+            if !running { replayPendingAIPopup() }
+        }
+        .onChange(of: aiPanel.isScreenLocked) { _, locked in
+            if !locked { replayPendingAIPopup() }
+        }
+        .onChange(of: aiPanel.popupWanted) { _, wanted in
+            if wanted { replayPendingAIPopup() }
+        }
+        .onChange(of: enableAITab) { _, enabled in
+            // Turning the AI tab off must not leave it open (a pending
+            // decision would otherwise keep it from closing).
+            if !enabled && vm.notchState == .open && coordinator.currentView == .ai {
+                vm.close()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .aiRequestCloseNotch)) { _ in
+            handleAICloseRequest()
+        }
+        .onChange(of: aiPanel.preferredHeight) { _, _ in
+            resizeOpenNotchForCurrentView()
+        }
+        .onChange(of: coordinator.currentView) { oldView, newView in
+            if oldView == .ai && newView != .ai {
+                aiPanel.aiTabDidHide()
+            }
+            resizeOpenNotchForCurrentView()
         }
     }
 
@@ -287,9 +363,13 @@ struct ContentView: View {
                       } else if coordinator.sneakPeek.show && Defaults[.inlineHUD] && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
+                      } else if showAIPendingActivity {
+                          AILiveActivity()
                       } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music) && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle) && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed {
                           MusicLiveActivity()
                               .frame(alignment: .center)
+                      } else if showAIWorkingActivity {
+                          AILiveActivity()
                       } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace] && !vm.hideOnClosed  {
                           BoringFaceAnimation()
                        } else if vm.notchState == .open {
@@ -349,6 +429,19 @@ struct ContentView: View {
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
                     case .shelf:
                         ShelfView()
+                    case .ai:
+                        if aiPanel.isScreenLocked {
+                            AILockedPlaceholder()
+                        } else {
+                            AIPanelView()
+                        }
+                    }
+                }
+                // Pre-measure the AI list while another tab is open (only
+                // while open, so a closed notch costs nothing).
+                .background(alignment: .top) {
+                    if enableAITab && coordinator.currentView != .ai && !aiPanel.isScreenLocked {
+                        AIListHeightProbe()
                     }
                 }
                 .transition(
@@ -486,6 +579,25 @@ struct ContentView: View {
         )
     }
 
+    /// Closed-notch AI activity, laid out like MusicLiveActivity: mascot of the
+    /// most relevant session on the left, session count (or "!") on the right.
+    @ViewBuilder
+    func AILiveActivity() -> some View {
+        let wing = max(0, vm.effectiveClosedNotchHeight - 12)
+        HStack {
+            AIActivityMascot(size: wing * 0.8)
+                .frame(width: wing, height: wing)
+
+            Rectangle()
+                .fill(.black)
+                .frame(width: vm.closedNotchSize.width + -cornerRadiusInsets.closed.top)
+
+            AIActivityBadge(size: wing)
+                .frame(width: wing, height: wing)
+        }
+        .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
+    }
+
     @ViewBuilder
     var dragDetector: some View {
         if Defaults[.boringShelf] && vm.notchState == .closed {
@@ -508,6 +620,75 @@ struct ContentView: View {
         }
     }
 
+    /// Opens the notch for a user hover / click / gesture. If an AI agent waits
+    /// for a decision, the AI tab is shown instead of the last tab.
+    private func openFromUserInteraction() {
+        if vm.notchState == .closed && !aiPanel.isScreenLocked
+            && aiPanel.surfacePendingDecisionForUserOpen() {
+            coordinator.currentView = .ai
+        }
+        doOpen()
+    }
+
+    // MARK: - AI popups
+
+    /// With "show on all displays" only the notch on the selected (or main)
+    /// screen pops up for AI requests; otherwise there is a single notch.
+    private var isAIPopupTarget: Bool {
+        guard Defaults[.showOnAllDisplays] else { return true }
+        let selected = coordinator.selectedScreenUUID
+        let target = NSScreen.screen(withUUID: selected) != nil ? selected : NSScreen.main?.displayUUID
+        return vm.screenUUID == target
+    }
+
+    private func handleAIOpenRequest() {
+        // Never pop agent content (commands, diffs, plans) onto the lock
+        // screen; a pending decision is replayed on unlock (popupWanted).
+        guard enableAITab, !coordinator.helloAnimationRunning, isAIPopupTarget,
+              !aiPanel.isScreenLocked else { return }
+        // Pops up even over a fullscreen app (vm.hideOnClosed): agents usually
+        // run in a fullscreen terminal, which is exactly when the popup matters.
+        if coordinator.currentView != .ai {
+            coordinator.currentView = .ai
+        }
+        if vm.notchState == .closed {
+            hoverTask?.cancel()
+            aiPanel.markOpenedByPopup()
+            doOpen()
+        }
+    }
+
+    /// Re-requests a decision popup that could not be shown when it arrived
+    /// (hello animation, locked screen, window recreated after unlock or a
+    /// display change).
+    private func replayPendingAIPopup() {
+        guard aiPanel.popupWanted, Defaults[.aiAutoPopupOnRequest],
+              vm.notchState == .closed else { return }
+        if !aiPanel.requiresUserAction {
+            guard aiPanel.showNextPending() else { return }
+        }
+        handleAIOpenRequest()
+    }
+
+    private func handleAICloseRequest() {
+        guard vm.notchState == .open, coordinator.currentView == .ai,
+              !aiPanel.requiresUserAction,
+              !SharingStateManager.shared.preventNotchClose else { return }
+        hoverTask?.cancel()
+        vm.close()
+    }
+
+    /// Re-applies the open-notch height after a tab switch or AI panel resize.
+    /// Keeps vm.notchSize (hit-testing, drag regions) in sync after a tab
+    /// switch or AI panel resize. The visible height is already animated by
+    /// the frame above, so no animation here.
+    private func resizeOpenNotchForCurrentView() {
+        guard vm.notchState == .open else { return }
+        let target = vm.openNotchSizeForCurrentView
+        guard target != vm.notchSize else { return }
+        vm.notchSize = target
+    }
+
     // MARK: - Hover Management
 
     private func handleHover(_ hovering: Bool) {
@@ -518,6 +699,7 @@ struct ContentView: View {
             withAnimation(animationSpring) {
                 isHovering = true
             }
+            aiPanel.setHovering(true)
             
             if vm.notchState == .closed && Defaults[.enableHaptics] {
                 haptics.toggle()
@@ -536,7 +718,7 @@ struct ContentView: View {
                           self.isHovering,
                           !self.coordinator.sneakPeek.show else { return }
                     
-                    self.doOpen()
+                    self.openFromUserInteraction()
                 }
             }
         } else {
@@ -548,8 +730,10 @@ struct ContentView: View {
                     withAnimation(animationSpring) {
                         self.isHovering = false
                     }
+                    self.aiPanel.setHovering(false)
                     
-                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
+                    // Never close on mouse exit while the AI tab waits for a decision.
+                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose && !self.aiBlocksClose {
                         self.vm.close()
                     }
                 }
@@ -578,12 +762,14 @@ struct ContentView: View {
             withAnimation(animationSpring) {
                 gestureProgress = .zero
             }
-            doOpen()
+            openFromUserInteraction()
         }
     }
 
     private func handleUpGesture(translation: CGFloat, phase: NSEvent.Phase) {
-        guard vm.notchState == .open && !vm.isHoveringCalendar else { return }
+        // The AI panels scroll a lot (lists, plans, replies): don't treat
+        // scrolling there as the close gesture.
+        guard vm.notchState == .open && !vm.isHoveringCalendar && coordinator.currentView != .ai else { return }
 
         withAnimation(animationSpring) {
             gestureProgress = (translation / Defaults[.gestureSensitivity]) * -20

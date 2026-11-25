@@ -1,199 +1,77 @@
-<h1 align="center">
-  <br>
-  <a href="http://theboring.name"><img src="https://framerusercontent.com/images/RFK4vs0kn8pRMuOO58JeyoemXA.png?scale-down-to=256" alt="Boring Notch" width="150"></a>
-  <br>
-  Boring Notch
-  <br>
-</h1>
+# SuperNotch
 
+SuperNotch turns the MacBook notch into a dynamic island for **media, calendar, files — and your AI coding agents**.
 
-<p align="center">
-  <a title="Crowdin" target="_blank" href="https://crowdin.com/project/boring-notch"><img src="https://badges.crowdin.net/boring-notch/localized.svg"></a>
-  <img src="https://github.com/TheBoredTeam/boring.notch/actions/workflows/cicd.yml/badge.svg" alt="TheBoringNotch Build & Test" style="margin-right: 10px;" />
-  <a href="https://discord.gg/c8JXA7qrPm">
-    <img src="https://dcbadge.limes.pink/api/server/https://discord.gg/c8JXA7qrPm?style=flat" alt="Discord Badge" />
-  </a>
-  <a href="https://www.ko-fi.com/alexander5015">
-    <img src="https://srv-cdn.himpfen.io/badges/kofi/kofi-flat.svg" alt="Ko-Fi" />
-  </a>
-</p>
+It is [boring.notch](https://github.com/TheBoredTeam/boring.notch) with the AI-agent features of [Code Island](https://github.com/rifqiakrm/code-island) built in as a new **AI** tab.
 
-<p align="center">
-  <a href="https://trendshift.io/repositories/14815?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-14815" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/14815" alt="TheBoredTeam%2Fboring.notch |    Trendshift" width="250" height="55"/></a>
-</p>
-<!--Welcome to **Boring.Notch**, the coolest way to make your MacBook's notch the star of the show! Forget about those boring status bars—our notch turns into a dynamic music control center, complete with a snazzy visualizer and all the music controls you need. It's like having a mini concert right at the top of your screen! -->
+## Features
 
-Say hello to **Boring Notch**, the coolest way to make your MacBook’s notch the star of the show! Say goodbye to boring status bars: with Boring Notch, your notch transforms into a dynamic music control center, complete with a vibrant visualizer and all the essential music controls you need. But that’s just the start! Boring Notch also offers calendar integration, a handy file shelf with AirDrop support, a complete MacOS HUD replacement and more!
+**From boring.notch**
+- Now Playing controls with album art and visualizer (Apple Music, Spotify, YouTube Music, …)
+- Calendar & reminders, battery, HUD replacement, webcam mirror
+- Shelf: drop files onto the notch, AirDrop them
 
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/2d5f69c1-6e7b-4bc2-a6f1-bb9e27cf88a8" alt="Demo GIF" />
-</p>
+**AI tab (from Code Island)** — currently **Claude Code** and **Codex**
+- Live list of running agent sessions with status, last prompt and reply
+- **Pops up automatically** when an agent needs you:
+  - permission requests (Allow once · Allow all · Auto mode · Deny)
+  - plan review (`ExitPlanMode`)
+  - questions (`AskUserQuestion`) — answer right in the notch
+- "Finished" card when a task completes, auto-closes after a few seconds
+- 5-hour / 7-day usage limits (used or remaining — your choice in Settings)
+- 8-bit sound cues
+- Hover a tab to switch; hover the AI list to expand it
 
-<!--https://github.com/user-attachments/assets/19b87973-4b3a-4853-b532-7e82d1d6b040-->
----
-<!--## Table of Contents
-- [Installation](#installation)
-- [Usage](#usage)
-- [Roadmap](#-roadmap)
-- [Building from Source](#building-from-source)
-- [Contributing](#-contributing)
-- [Join our Discord Server](#join-our-discord-server)
-- [Star History](#star-history)
-- [Buy us a coffee!](#buy-us-a-coffee)
-- [Acknowledgments](#-acknowledgments)-->
+## Requirements
 
-## Installation
+- macOS 14 Sonoma or later
+- Apple Silicon (arm64)
 
-**System Requirements:**
-- macOS **14 Sonoma** or later
-- Apple Silicon or Intel Mac
+## Install
 
----
+1. Download `SuperNotch-<version>-arm64.dmg` from [Releases](../../releases) and drag **SuperNotch** to Applications.
+2. The app is **not notarized** (no paid Apple Developer ID yet), so macOS blocks the first launch. Either
+   - right-click SuperNotch in Applications → **Open** → **Open**, or
+   - run `xattr -dr com.apple.quarantine /Applications/SuperNotch.app`
+3. Allow Calendar / Accessibility access when asked (needed for calendar and HUD features).
 
-### Option 1: Download and Install Manually
+## What SuperNotch changes on your Mac
 
-<a href="https://github.com/TheBoredTeam/boring.notch/releases/latest/download/boringNotch.dmg" target="_self"><img width="200" src="https://github.com/user-attachments/assets/e3179be1-8416-4b8a-b417-743e1ecc67d6" alt="Download for macOS" /></a>
+To receive agent events, SuperNotch (like Code Island) installs hooks on launch:
 
-Once downloaded, open the `.dmg` and move **Boring Notch** to your `/Applications` folder.
+| File | Change |
+|---|---|
+| `~/.claude/settings.json` | adds `code-island-bridge` hook entries (a `.bak` backup is written first) |
+| `~/.codex/hooks.json`, `~/.codex/config.toml` | adds the Codex hook + enables hooks |
+| `~/.code-island/bin/` | small launcher scripts that run the bridge inside SuperNotch.app |
 
-> [!IMPORTANT]
-> We don't have an Apple Developer account (yet 👀), so macOS will warn you that Boring Notch is from an unidentified developer on first launch. This is expected behavior.
->
-> You'll need to bypass this before the app will open. You only need to do this once. Use one of the methods below.
+Events travel over the local Unix socket `/tmp/code-island.sock`. Nothing leaves your Mac except the usage-limit lookups to Anthropic / OpenAI with your existing login.
 
----
+You can turn off automatic hook installation in **Settings → AI Agents**.
 
-#### Recommended: Terminal (Always Works)
+> **Don't run SuperNotch and the Code Island app at the same time** — they share the same hooks and socket. SuperNotch will not take the socket from a running Code Island and shows a warning in the AI tab instead.
 
-This is the quickest and easiest method. It only requires a single command and works consistently for all users. System Settings can sometimes fail and won't work for non-admin users.
-
-After moving Boring Notch to your Applications folder, run:
+## Build from source
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Boring Notch.app"
+git clone <this repo>
+cd <repo>
+xcodebuild -scheme boringNotch -configuration Release -derivedDataPath build CODE_SIGN_IDENTITY="-" build
+open build/Build/Products/Release/SuperNotch.app
 ```
 
-Then open the app normally.
+Xcode 16+ is required. The `Embed AI Bridge` build phase compiles the hook bridge (`AIBridge/`, a Swift package) and embeds it at `SuperNotch.app/Contents/Helpers/CodeIslandBridge`.
 
----
+New code lives in `boringNotch/AI/` (ported Code Island core + views, AI tab integration) and `AIBridge/`.
 
-#### Alternative: System Settings
+## Credits & license
 
-> [!NOTE]
-> This method doesn't work for all users. If this doesn't work, use the Terminal method above.
+SuperNotch is a derivative work of:
 
-1. Try to open the app — you'll see a security warning.
-2. Click **OK** to dismiss it.
-3. Open **System Settings** > **Privacy & Security**.
-4. Scroll to the bottom and click **Open Anyway** next to the Boring Notch warning.
-5. Confirm if prompted.
+- **[boring.notch](https://github.com/TheBoredTeam/boring.notch)** by TheBoredTeam — GPL-3.0. The original README is kept as [README.boring-notch.md](README.boring-notch.md); third-party notices are in [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
+- **[Code Island](https://github.com/rifqiakrm/code-island)** by rifqiakrm — GPL-3.0. The session store, hook bridge, installers and AI views are ported from it.
+- **[Vibe Notch](https://github.com/farouqaldori/vibe-notch)** by farouqaldori — the pixel mascots used by Code Island.
 
----
+**Modifications (2026):** merged Code Island into boring.notch as an AI tab, renamed the app to SuperNotch, disabled the App Sandbox and Sparkle auto-updates, and changed the notch sizing, popups and settings accordingly.
 
-### Option 2: Install via Homebrew
-
-You can also install using [Homebrew](https://brew.sh). The Homebrew installation automatically bypasses the macOS security warning described above.
-
-```bash
-brew install --cask TheBoredTeam/boring-notch/boring-notch
-```
-
-## Usage
-
-- Launch the app, and voilà—your notch is now the coolest part of your screen.
-- Hover over the notch to see it expand and reveal all its secrets.
-- Use the controls to manage your music like a rockstar.
-- Click the star in your menu bar to customize your notch to your heart's content.
-
-## 📋 Roadmap
-- [x] Playback live activity 🎧
-- [x] Calendar integration 📆
-- [x] Reminders integration ☑️
-- [x] Mirror 📷
-- [x] Charging indicator and current percentage 🔋
-- [x] Customizable gesture control 👆🏻
-- [x] Shelf functionality with AirDrop 📚
-- [x] Notch sizing customization, finetuning on different display sizes 🖥️
-- [x] System HUD replacements (volume, brightness, backlight) 🎚️💡⌨️
-- [ ] Bluetooth Live Activity (connect/disconnect for bluetooth devices) 
-- [ ] Weather integration ⛅️
-- [ ] Customizable Layout options 🛠️
-- [ ] Lock Screen Widgets 🔒
-- [ ] Extension system 🧩
-- [ ] Notifications (under consideration) 🔔
-<!-- - [ ] Clipboard history manager 📌 `Extension` -->
-<!-- - [ ] Download indicator of different browsers (Safari, Chromium browsers, Firefox) 🌍 `Extension`-->
-<!-- - [ ] Customizable function buttons 🎛️ -->
-<!-- - [ ] App switcher 🪄 -->
-
-<!-- ## 🧩 Extensions
-> [!NOTE]
-> We’re hard at work on some awesome extensions! Stay tuned, and we’ll keep you updated as soon as they’re released. -->
-
-## Building from Source
-
-### Prerequisites
-
-- **macOS 15.6 or later**
-- **Xcode 26 or later**
-
-### Installation
-
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/TheBoredTeam/boring.notch.git
-   cd boring.notch
-   ```
-
-2. **Open the Project in Xcode**:
-   ```bash
-   open boringNotch.xcodeproj
-   ```
-
-3. **Build and Run**:
-    - Click the "Run" button or press `Cmd + R`. Watch the magic unfold!
-
-## 🤝 Contributing
-
-We’re all about good vibes and awesome contributions! Read [CONTRIBUTING.md](CONTRIBUTING.md) to learn how you can join the fun!
-
-## Join our Discord Server
-
-<a href="https://discord.gg/GvYcYpAKTu" target="_blank"><img src="https://iili.io/28m3GHv.png" alt="Join The Boring Server!" style="height: 60px !important;width: 217px !important;" ></a>
-
-## Star History
-<!-- BROKEN: GitHub now restricts the stargazer API for privacy reasons
-<a href="https://www.star-history.com/#TheBoredTeam/boring.notch&Timeline">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=TheBoredTeam/boring.notch&type=Timeline&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=TheBoredTeam/boring.notch&type=Timeline" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=TheBoredTeam/boring.notch&type=Timeline" />
- </picture>
-</a>
--->
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/TheBoredTeam/org-star-chart-updater/main/projects/boring.notch/chart-dark.svg">
-   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/TheBoredTeam/org-star-chart-updater/main/projects/boring.notch/chart-light.svg">
-   <img src="https://raw.githubusercontent.com/TheBoredTeam/org-star-chart-updater/main/projects/boring.notch/chart-light.svg" alt="TheBoredTeam/boring.notch GitHub star history">
- </picture>
-
-## Support us on Ko-fi!
-<!-- <a href="https://www.buymeacoffee.com/jfxh67wvfxq" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-red.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a> -->
-<a href="https://www.ko-fi.com/alexander5015" target="_blank"><img src="https://github.com/user-attachments/assets//a76175ef-7e93-475a-8b67-4922ba5964c2" alt="Support us on Ko-fi" style="height: 70px !important;width: 346px !important;" ></a>
-
-## 🎉 Acknowledgments
-
-We would like to express our gratitude to the authors and maintainers of the open-source projects that made this possible. 
-
-## Notable Projects
-- **[MediaRemoteAdapter](https://github.com/ungive/mediaremote-adapter)** –  An open-source project that allowed us to use the Now Playing source in macOS 15.4+
-- **[NotchDrop](https://github.com/Lakr233/NotchDrop)** – An open-source project that has been instrumental in developing the first version of the "Shelf" feature in Boring Notch.
-
-For a full list of licenses and attributions, please see the [Third-Party Licenses](./THIRD_PARTY_LICENSES.md) file.
-
-### Icon credits: [@maxtron95](https://github.com/maxtron95)
-### Website credits: [@himanshhhhuv](https://github.com/himanshhhhuv)
-
-- **SwiftUI**: For making us look like coding wizards.
-- **You**: For being awesome and checking out **boring.notch**!
-
+SuperNotch is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).

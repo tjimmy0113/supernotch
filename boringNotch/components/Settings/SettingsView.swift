@@ -30,6 +30,9 @@ struct SettingsView: View {
                 NavigationLink(value: "General") {
                     Label("General", systemImage: "gear")
                 }
+                NavigationLink(value: "AI") {
+                    Label("AI Agents", systemImage: "sparkles")
+                }
                 NavigationLink(value: "Appearance") {
                     Label("Appearance", systemImage: "eye")
                 }
@@ -73,6 +76,8 @@ struct SettingsView: View {
                 switch selectedTab {
                 case "General":
                     GeneralSettings()
+                case "AI":
+                    AIAgentsSettings()
                 case "Appearance":
                     Appearance()
                 case "Media":
@@ -865,7 +870,14 @@ struct About: View {
                     Text("Version info")
                 }
 
-                UpdaterSettingsView(updater: updaterController.updater)
+                // SuperNotch: Sparkle is disabled (boring.notch's update feed
+                // would replace this app), so no update controls here.
+                Section {
+                    Text("Automatic updates are not available in this build.")
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Software updates")
+                }
 
                 HStack(spacing: 30) {
                     Spacer(minLength: 0)
@@ -903,7 +915,6 @@ struct About: View {
             //                openWindow(id: "onboarding")
             //            }
             //            .controlSize(.extraLarge)
-            CheckForUpdatesView(updater: updaterController.updater)
         }
         .navigationTitle("About")
     }

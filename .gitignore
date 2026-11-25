@@ -22,6 +22,7 @@ Carthage/Build/
 # Swift Package Manager
 .swiftpm/
 .build/
+AIBridge/.build/
 
 # Derived data
 DerivedData/

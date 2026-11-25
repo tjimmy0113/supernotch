@@ -32,7 +32,7 @@ extension SkyLightOperator {
 }
 
 class BoringNotchSkyLightWindow: NSPanel {
-    private var isSkyLightEnabled: Bool = false
+    private(set) var isSkyLightEnabled: Bool = false
     
     override init(
         contentRect: NSRect,
