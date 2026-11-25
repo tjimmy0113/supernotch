@@ -146,6 +146,15 @@ final class AIPanelModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Showing the AI tab with more sessions than fit the regular notch
+        // height → expand right away. Runs in willSet of the tab switch, i.e.
+        // in the same transaction/animation as the switch itself.
+        BoringViewCoordinator.shared.$currentView
+            .sink { [weak self] view in
+                if view == .ai { self?.autoExpandIfListOverflows() }
+            }
+            .store(in: &cancellables)
+
         AIManager.shared.$socketConflict
             .removeDuplicates()
             .receive(on: RunLoop.main)
@@ -441,6 +450,18 @@ final class AIPanelModel: ObservableObject {
         requestClose()
     }
 
+    /// Panel height available at boring.notch's regular open height (open
+    /// notch minus header/padding chrome, ~44–52 pt depending on the notch).
+    private static let compactPanelHeight: CGFloat = openNotchSize.height - 48
+
+    /// Expand when the (pre-measured) list doesn't fit the compact panel, so
+    /// several sessions show without the user having to hover / scroll.
+    private func autoExpandIfListOverflows() {
+        guard mode == .list, !listExpanded,
+              let content = listContentHeight, content > Self.compactPanelHeight else { return }
+        listExpanded = true
+    }
+
     /// The user scrolled down in the session list: grow the notch to fit
     /// the list (capped; beyond that it keeps scrolling).
     func expandList() {
@@ -453,6 +474,10 @@ final class AIPanelModel: ObservableObject {
     func listContentHeightChanged(_ height: CGFloat) {
         guard listContentHeight != height else { return }
         listContentHeight = height
+        // A session arrived while the AI tab is open and now it overflows.
+        if isAnyNotchOpen, BoringViewCoordinator.shared.currentView == .ai {
+            autoExpandIfListOverflows()
+        }
     }
 
     func permissionDetailToggled(sessionId: String, expanded: Bool) {
@@ -506,6 +531,8 @@ final class AIPanelModel: ObservableObject {
 
     func notchDidOpen(_ vm: BoringViewModel) {
         openNotches[ObjectIdentifier(vm)] = WeakNotch(vm)
+        // Opening straight onto the AI tab (no tab switch to observe).
+        if BoringViewCoordinator.shared.currentView == .ai { autoExpandIfListOverflows() }
         if BoringViewCoordinator.shared.currentView == .ai {
             popupWanted = false
         }
