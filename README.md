@@ -41,8 +41,8 @@ brew install --cask supernotch
 
 1. Download `SuperNotch-<version>-arm64.dmg` from [Releases](../../releases) and drag **SuperNotch** to Applications.
 2. The app is **not notarized** (no paid Apple Developer ID yet), so macOS blocks the first launch. Either
-   - right-click SuperNotch in Applications → **Open** → **Open**, or
-   - run `xattr -dr com.apple.quarantine /Applications/SuperNotch.app`
+   - run `xattr -dr com.apple.quarantine /Applications/SuperNotch.app`, or
+   - open SuperNotch once, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** (on macOS 15 and later, right-click → Open no longer works)
 3. Allow Calendar / Accessibility access when asked (needed for calendar and HUD features).
 
 ## What SuperNotch changes on your Mac
